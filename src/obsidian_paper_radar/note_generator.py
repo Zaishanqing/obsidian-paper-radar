@@ -431,7 +431,7 @@ def _paper_to_note_prompt_dict(paper: Paper) -> dict[str, Any]:
         "id": paper.paper_id,
         "title": paper.title,
         "authors": paper.authors[:8],
-        "abstract": paper.abstract[:1600],
+        "abstract": paper.abstract,
         "published": paper.published,
         "url": paper.url,
         "pdf_url": paper.pdf_url,

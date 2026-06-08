@@ -113,7 +113,7 @@ def _chinese_topic_label(tag: str) -> str:
     return text
 
 
-def _plain_daily_text(value: str, max_chars: int) -> str:
+def _plain_daily_text(value: str) -> str:
     text = str(value or "").strip()
     if not text or text == "--":
         return ""
@@ -124,15 +124,12 @@ def _plain_daily_text(value: str, max_chars: int) -> str:
     text = re.sub(r"\[\[([^|\]]+)\|([^\]]+)\]\]", r"\2", text)
     text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
-    if len(text) <= max_chars:
-        return text
-    cut = text[:max_chars].rstrip("，,；;。 ")
-    return f"{cut}。"
+    return text
 
 
-def _first_nonempty(*values: str, max_chars: int) -> str:
+def _first_nonempty(*values: str) -> str:
     for value in values:
-        compact = _plain_daily_text(value, max_chars)
+        compact = _plain_daily_text(value)
         if compact:
             return compact
     return ""
@@ -316,18 +313,17 @@ class ObsidianExporter:
             note_link = vault_relative(note_path.with_suffix(""), self.vault_path) if note_path else ""
             title_link = f"[[{note_link}|{self.note_title(paper, result)}]]" if note_link else self.note_title(paper, result)
             daily_image = self._daily_image_embed(paper.paper_id, image_paths or {})
-            summary = _first_nonempty(result.daily_one_sentence_zh, result.summary_zh, paper.abstract, max_chars=220)
+            summary = _first_nonempty(result.daily_one_sentence_zh, result.summary_zh, paper.abstract)
             contribution = _first_nonempty(
                 result.daily_core_contribution_zh,
                 result.key_innovation,
                 result.method_overview,
-                max_chars=220,
             )
-            why_read = _first_nonempty(result.why_read, result.project_relevance, result.reading_priority_reason, max_chars=140)
-            inspiration = _first_nonempty(result.project_inspiration, result.project_relevance, max_chars=160)
-            core_points = [_plain_daily_text(p, 90) for p in (result.daily_core_points or []) if _meaningful_text(p)]
-            key_results = _first_nonempty(result.daily_key_results, result.results, max_chars=200)
-            modules = self._inline_modules(result.core_modules) or _plain_daily_text(result.key_innovation, 120)
+            why_read = _first_nonempty(result.why_read, result.project_relevance, result.reading_priority_reason)
+            inspiration = _first_nonempty(result.project_inspiration, result.project_relevance)
+            core_points = [_plain_daily_text(p) for p in (result.daily_core_points or []) if _meaningful_text(p)]
+            key_results = _first_nonempty(result.daily_key_results, result.results)
+            modules = self._inline_modules(result.core_modules) or _plain_daily_text(result.key_innovation)
             lines.extend([f"### {idx}. {title_link}", f"- **原题**：{paper.title}", f"- **推荐分**：{result.recommend_score:.1f}/10"])
             paper_type = _meaningful_text(result.paper_type)
             if paper_type:

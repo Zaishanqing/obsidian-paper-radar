@@ -49,14 +49,14 @@ def _generate_daily_cards(
             {
                 "paper_id": result.paper_id,
                 "title": paper.title,
-                "abstract": paper.abstract[:1200],
+                "abstract": paper.abstract,
                 "score": result.recommend_score,
                 "tags": result.tags or result.matched_interests,
                 "paper_type": result.paper_type,
                 "why_read": result.why_read,
                 "summary_zh": result.summary_zh,
-                "method_overview": result.method_overview[:900],
-                "key_innovation": result.key_innovation[:700],
+                "method_overview": result.method_overview,
+                "key_innovation": result.key_innovation,
                 "project_relevance": result.project_relevance,
             }
         )
@@ -119,15 +119,15 @@ def _generate_daily_cards(
         result = result_map.get(paper_id)
         if result is None:
             continue
-        one_sentence = _clean_card_text(str(item.get("one_sentence_summary_zh", "")), 110)
-        contribution = _clean_card_text(str(item.get("core_contribution_zh", "")), 130)
+        one_sentence = _clean_card_text(str(item.get("one_sentence_summary_zh", "")))
+        contribution = _clean_card_text(str(item.get("core_contribution_zh", "")))
         raw_points = item.get("core_points_zh", [])
         core_points = (
-            [p for p in (_clean_card_text(str(x), 80) for x in raw_points) if p][:6]
+            [p for p in (_clean_card_text(str(x)) for x in raw_points) if p]
             if isinstance(raw_points, list)
             else []
         )
-        key_results = _clean_card_text(str(item.get("key_results_zh", "")), 160)
+        key_results = _clean_card_text(str(item.get("key_results_zh", "")))
         if one_sentence:
             result.daily_one_sentence_zh = one_sentence
         if contribution:
@@ -144,15 +144,11 @@ def _generate_daily_cards(
         logger.info("日报摘要 pass 完成：更新 %d 条日报卡片", updated)
 
 
-def _clean_card_text(value: str, max_chars: int) -> str:
+def _clean_card_text(value: str) -> str:
     text = re.sub(r"^#{1,6}\s+", "", value.strip(), flags=re.MULTILINE)
     text = re.sub(r"!\[\[[^\]]+\]\]", "", text)
-    text = re.sub(r"\s+", " ", text).strip(" -，,；;。")
-    if not text:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars].rstrip("，,；;。") + "。"
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    return text
 
 
 def _valid_daily_short_title(value: str) -> str:
@@ -191,7 +187,7 @@ def _generate_daily_overview(
         items.append(
             {
                 "title": paper.title,
-                "abstract": paper.abstract[:900],
+                "abstract": paper.abstract,
                 "score": result.recommend_score,
                 "tags": result.tags or result.matched_interests,
                 "summary_zh": result.summary_zh,

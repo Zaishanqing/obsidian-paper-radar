@@ -188,6 +188,24 @@ class CoreTest(unittest.TestCase):
         self.assertIn("**核心贡献**：总体思路", content)
         self.assertNotIn("**核心贡献**：###", content)
 
+    def test_daily_render_does_not_truncate_body_fields(self) -> None:
+        exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")
+        paper = Paper("p1", "Paper", [], "abstract", "2026-06-07", "", "", "arxiv")
+        long_tail = "这是结尾的完整判断，不能被截断。"
+        result = RerankResult(
+            "p1",
+            8,
+            "keep",
+            "daily_only",
+            summary_zh="摘要前半段。" + "补充解释。" * 80 + long_tail,
+            why_read="看点前半段。" + "继续说明。" * 60 + long_tail,
+            project_inspiration="启发前半段。" + "落到项目。" * 60 + long_tail,
+            results="结果前半段。" + "指标解释。" * 60 + long_tail,
+            key_innovation="创新前半段。" + "机制说明。" * 60 + long_tail,
+        )
+        content = exporter.render_daily([paper], [result], date(2026, 6, 7), {})
+        self.assertGreaterEqual(content.count(long_tail), 5)
+
     def test_daily_render_prefers_daily_card_pass_fields(self) -> None:
         exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")
         paper = Paper("p1", "Paper", [], "abstract", "2026-06-07", "", "", "arxiv")
@@ -248,9 +266,32 @@ class CoreTest(unittest.TestCase):
             ]
         }
         _generate_daily_cards([paper], [result], client)
-        self.assertEqual(result.daily_one_sentence_zh, "一句话说明")
-        self.assertEqual(result.daily_core_contribution_zh, "核心贡献说明")
+        self.assertEqual(result.daily_one_sentence_zh, "一句话说明。")
+        self.assertEqual(result.daily_core_contribution_zh, "核心贡献说明。")
         self.assertEqual(result.note_title_zh, "证据规划抽取")
+
+    def test_generate_daily_cards_does_not_truncate_model_output(self) -> None:
+        paper = Paper("p1", "Long Paper", [], "abstract", "2026-06-07", "", "", "arxiv")
+        result = RerankResult("p1", 8, "keep", "daily_only")
+        long_tail = "这是模型输出的完整结尾。"
+        long_text = "前半段。" + "持续解释。" * 60 + long_tail
+        client = Mock()
+        client.chat_json.return_value = {
+            "items": [
+                {
+                    "paper_id": "p1",
+                    "one_sentence_summary_zh": long_text,
+                    "core_contribution_zh": long_text,
+                    "core_points_zh": [long_text],
+                    "key_results_zh": long_text,
+                }
+            ]
+        }
+        _generate_daily_cards([paper], [result], client)
+        self.assertTrue(result.daily_one_sentence_zh.endswith(long_tail))
+        self.assertTrue(result.daily_core_contribution_zh.endswith(long_tail))
+        self.assertTrue(result.daily_core_points[0].endswith(long_tail))
+        self.assertTrue(result.daily_key_results.endswith(long_tail))
 
     def test_folder_style_note_path_uses_chinese_title(self) -> None:
         exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")

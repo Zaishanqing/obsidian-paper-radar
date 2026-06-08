@@ -300,7 +300,7 @@ def _paper_to_fast_prompt_dict(paper: Paper) -> dict[str, Any]:
         "id": paper.paper_id,
         "title": paper.title,
         "authors": paper.authors[:6],
-        "abstract": paper.abstract[:900],
+        "abstract": paper.abstract,
         "published": paper.published,
         "url": paper.url,
         "pdf_url": paper.pdf_url,
@@ -333,7 +333,7 @@ def fallback_result(paper: Paper) -> RerankResult:
         decision=decision,
         action=action,
         matched_interests=paper.matched_interests,
-        summary_zh=paper.abstract[:220],
+        summary_zh=paper.abstract,
         note_title_zh="",
         paper_type="unknown",
         reading_decision="收藏观察",
@@ -473,7 +473,7 @@ def _repair_required_fields(item: dict[str, Any], paper_map: dict[str, Paper]) -
         return repaired
     changed = False
     if not str(repaired.get("summary_zh", "")).strip():
-        repaired["summary_zh"] = (paper.abstract or paper.title)[:260]
+        repaired["summary_zh"] = paper.abstract or paper.title
         changed = True
     if not str(repaired.get("note_title_zh", "")).strip():
         repaired["note_title_zh"] = fallback_note_title(str(repaired.get("summary_zh", "")), paper.title)
