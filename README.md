@@ -37,6 +37,7 @@ Obsidian Paper Radar 是一个本地运行的论文发现与 Obsidian 笔记生�
 | `moc.py` | 主题 MOC 索引生成 |
 | `feedback.py` | 反馈记录与下一轮粗排加权 |
 | `vault_links.py` | 扫描已有 Vault 笔记并自动生成 wikilink |
+| `skill_specs.py` | 加载 Obsidian 写作规范（Vault Skills/ 优先，项目 config/ 兜底） |
 | `health.py` | 运行健康报告 |
 
 更完整的流程说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -89,6 +90,8 @@ NO_PROXY=localhost,127.0.0.1,api.deepseek.com
 | `config/daily_papers.yaml` | 来源开关、输出目录、图片、全文笔记、周报、MOC、缓存、运行时参数 |
 
 `config/*.yaml` 是本机配置，存在时优先于 `config/*.example.yaml`。运行状态写入 `data/state/`，网络缓存写入 `data/cache/`，它们不会写进 Obsidian Vault。
+
+项目 `config/` 下还自带了 LLM 写作规范文件（`风格-论文日报.md`、`风格-论文精读笔记.md`），启动时自动加载。如果你想自定义，在 Vault 中创建 `Skills/` 目录并放入同名文件即可覆盖默认规范。
 
 更细的配置说明见 [docs/DEEPSEEK_OBSIDIAN_SETUP.md](docs/DEEPSEEK_OBSIDIAN_SETUP.md)。
 

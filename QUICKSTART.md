@@ -82,7 +82,19 @@ Get-ScheduledTaskInfo -TaskName 'obsidian-paper-radar-daily'
 
 详见 `docs/WINDOWS_SCHEDULE.md`。
 
-## 6. 本地数据
+## 6. 写作规范
+
+项目 `config/` 下自带了默认写作规范文件，LLM 生成日报和精读笔记时会自动加载：
+
+```text
+config/
+  风格-论文日报.md       日报格式与内容要求
+  风格-论文精读笔记.md   精读笔记字段与深度要求
+```
+
+如果你想自定义规范，只需在自己的 Obsidian Vault 中创建 `Skills/风格-论文日报.md` 或 `Skills/风格-论文精读笔记.md`，程序会优先使用 Vault 版本（Vault `Skills/` > 项目 `config/` > 跳过）。
+
+## 7. 本地数据
 
 ```text
 data/cache/   网络请求缓存

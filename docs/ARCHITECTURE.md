@@ -62,6 +62,7 @@ CLI
 | `feedback.py` | 反馈导入、记录和权重调整 |
 | `dedup.py` | 已见论文、推荐历史和去重 |
 | `vault_links.py` | 已有 Obsidian 笔记索引和 wikilink 插入 |
+| `skill_specs.py` | 加载写作规范：Vault Skills/ 优先，项目 config/ 兜底 |
 | `health.py` | 运行健康报告 |
 
 ## 配置入口

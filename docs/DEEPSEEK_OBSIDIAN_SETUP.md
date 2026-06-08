@@ -84,6 +84,8 @@ Copy-Item config\daily_papers.example.yaml config\daily_papers.yaml
 
 `config/*.yaml` 一旦存在就优先于 `config/*.example.yaml`。修改示例文件不会影响本机运行，除非同步到本地 YAML。
 
+> **写作规范**：项目 `config/` 下还提供了 `风格-论文日报.md` 和 `风格-论文精读笔记.md`，用于约束 LLM 输出质量，开箱即用。详见下方 [写作规范](#写作规范) 章节。
+
 ## 运行
 
 验证配置：
@@ -128,6 +130,18 @@ Copy-Item config\daily_papers.example.yaml config\daily_papers.yaml
 ![[assets/fig1.png]]
 ```
 
+## 写作规范
+
+程序通过 DeepSeek 生成日报和精读笔记时，会注入写作规范来约束 LLM 的输出格式、内容深度和排版要求。规范文件查找优先级：
+
+1. **Vault `Skills/风格-论文日报.md`**（用户自定义，最高优先级）
+2. **项目 `config/风格-论文日报.md`**（项目自带默认规范）
+3. 都没有 → 跳过该规范文件
+
+同理适用于 `风格-论文精读笔记.md`。
+
+默认规范已随项目发布在 `config/` 目录下，开箱即用。如果你想调整日报或精读笔记的风格要求，只需在自己的 Obsidian Vault 根目录创建 `Skills/` 文件夹，放入同名 `.md` 文件即可覆盖默认规范，无需改项目代码或配置。
+
 ## 常见问题
 
 | 问题 | 检查项 |
@@ -138,3 +152,4 @@ Copy-Item config\daily_papers.example.yaml config\daily_papers.yaml
 | Semantic Scholar 429 | 配置 `SEMANTIC_SCHOLAR_API_KEY`，或调大 `sleep_between_requests_seconds` |
 | 图片提取失败 | 先用 `--no-images` 排查主流程；图片提取是非致命步骤 |
 | 找不到命令 | 重新运行 `.\.venv\Scripts\python.exe -m pip install -e .` |
+| 想自定义日报/笔记风格 | 在 Vault 根目录创建 `Skills/风格-论文日报.md` 或 `Skills/风格-论文精读笔记.md`，程序会自动优先使用 Vault 版本 |
