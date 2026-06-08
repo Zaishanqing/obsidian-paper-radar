@@ -185,7 +185,7 @@ class CoreTest(unittest.TestCase):
             why_read="值得读。",
         )
         content = exporter.render_daily([paper], [result], date(2026, 6, 7), {})
-        self.assertIn("**核心贡献**：总体思路", content)
+        self.assertIn("**核心贡献**：\n\n总体思路", content)
         self.assertNotIn("**核心贡献**：###", content)
 
     def test_daily_render_does_not_truncate_body_fields(self) -> None:
@@ -205,6 +205,23 @@ class CoreTest(unittest.TestCase):
         )
         content = exporter.render_daily([paper], [result], date(2026, 6, 7), {})
         self.assertGreaterEqual(content.count(long_tail), 5)
+
+    def test_daily_render_preserves_structured_field_lists(self) -> None:
+        exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")
+        paper = Paper("p1", "Paper", [], "abstract", "2026-06-07", "", "", "arxiv")
+        result = RerankResult(
+            "p1",
+            8,
+            "keep",
+            "daily_only",
+            summary_zh="这是总述。\n- 第一条\n- 第二条",
+            why_read="主要看三点： 1. 任务定义清楚 2. 指标有数字 3. 可以迁移",
+            results="结果包括：\n1. Macro-F1 提升\n2. 训练更快",
+        )
+        content = exporter.render_daily([paper], [result], date(2026, 6, 7), {})
+        self.assertIn("**一句话总结**：\n\n这是总述。\n\n- 第一条\n- 第二条", content)
+        self.assertIn("**看点**：\n\n主要看三点：\n\n1. 任务定义清楚\n2. 指标有数字\n3. 可以迁移", content)
+        self.assertIn("**关键结果**：\n\n结果包括：\n\n1. Macro-F1 提升\n2. 训练更快", content)
 
     def test_daily_render_prefers_daily_card_pass_fields(self) -> None:
         exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")
@@ -292,6 +309,23 @@ class CoreTest(unittest.TestCase):
         self.assertTrue(result.daily_core_contribution_zh.endswith(long_tail))
         self.assertTrue(result.daily_core_points[0].endswith(long_tail))
         self.assertTrue(result.daily_key_results.endswith(long_tail))
+
+    def test_generate_daily_cards_preserves_markdown_list_breaks(self) -> None:
+        paper = Paper("p1", "Long Paper", [], "abstract", "2026-06-07", "", "", "arxiv")
+        result = RerankResult("p1", 8, "keep", "daily_only")
+        client = Mock()
+        client.chat_json.return_value = {
+            "items": [
+                {
+                    "paper_id": "p1",
+                    "one_sentence_summary_zh": "这是总述。\n- 第一条\n- 第二条",
+                    "key_results_zh": "关键结果： 1. Macro-F1 提升 2. 训练更快",
+                }
+            ]
+        }
+        _generate_daily_cards([paper], [result], client)
+        self.assertEqual(result.daily_one_sentence_zh, "这是总述。\n- 第一条\n- 第二条")
+        self.assertEqual(result.daily_key_results, "关键结果：\n1. Macro-F1 提升\n2. 训练更快")
 
     def test_folder_style_note_path_uses_chinese_title(self) -> None:
         exporter = ObsidianExporter(Path("Vault"), "每日科研论文/日报", "每日科研论文/笔记")

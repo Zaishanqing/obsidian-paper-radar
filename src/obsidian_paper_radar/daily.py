@@ -18,7 +18,7 @@ from .image_utils import extract_images_for_papers
 from .models import RunSummary
 from .moc import update_mocs
 from .note_generator import generate_detailed_notes
-from .obsidian_exporter import ObsidianExporter
+from .obsidian_exporter import ObsidianExporter, _normalize_daily_field_text
 from .open_source_check import reconcile_results, verify_papers_open_source
 from .paper_fulltext import enrich_papers_with_fulltext
 from .paper_context import enrich_papers_with_context
@@ -147,7 +147,7 @@ def _generate_daily_cards(
 def _clean_card_text(value: str) -> str:
     text = re.sub(r"^#{1,6}\s+", "", value.strip(), flags=re.MULTILINE)
     text = re.sub(r"!\[\[[^\]]+\]\]", "", text)
-    text = re.sub(r"\s+", " ", text).strip(" -")
+    text = _normalize_daily_field_text(text).strip(" -")
     return text
 
 

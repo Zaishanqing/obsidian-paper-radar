@@ -9,7 +9,9 @@ from .models import Paper, RerankResult
 from .utils import fallback_note_title, safe_chinese_title, short_paper_suffix, vault_relative
 
 _HEADING_RE = re.compile(r"^#{1,6} \S")
-_LIST_RE = re.compile(r"^\s*([-*+] |\d+\. )")
+_LIST_RE = re.compile(r"^\s*([-*+]|\d+[.)、]|[（(]?\d+[）)]|[一二三四五六七八九十]+[、.])\s+")
+_INLINE_NUMBERED_LIST_RE = re.compile(r"(?<!^)(?<![\d.])\s+((?:\d+[.)、]|[（(]?\d+[）)]|[一二三四五六七八九十]+[、.])\s+)")
+_INLINE_BULLET_LIST_RE = re.compile(r"([。；;：:])\s+([-*+]\s+)")
 _DEFAULT_IMAGE_WIDTH = 600    # 读不到尺寸时的回退宽度
 _IMAGE_DISPLAY_HEIGHT = 450   # 统一展示高度：按真实比例反算宽度，使渲染高度≈450（不裁剪、不变形）
 _MAX_IMAGE_WIDTH = 1000       # 极宽图的宽度上限，避免横向超出笔记栏
@@ -123,8 +125,41 @@ def _plain_daily_text(value: str) -> str:
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"\[\[([^|\]]+)\|([^\]]+)\]\]", r"\2", text)
     text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return _normalize_daily_field_text(text)
+
+
+def _normalize_daily_field_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = _repair_inline_list_breaks(normalized)
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in normalized.split("\n")]
+    normalized = "\n".join(lines).strip()
+    return re.sub(r"\n{3,}", "\n\n", normalized)
+
+
+def _repair_inline_list_breaks(text: str) -> str:
+    lines: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if _LIST_RE.match(stripped):
+            lines.append(stripped)
+        else:
+            repaired = _INLINE_NUMBERED_LIST_RE.sub(r"\n\1", stripped)
+            repaired = _INLINE_BULLET_LIST_RE.sub(r"\1\n\2", repaired)
+            lines.append(repaired)
+    return "\n".join(lines)
+
+
+def _is_block_markdown(text: str) -> bool:
+    return "\n" in text or bool(_LIST_RE.match(text.strip()))
+
+
+def _append_labeled_daily_field(lines: list[str], label: str, value: str) -> None:
+    if not value:
+        return
+    if _is_block_markdown(value):
+        lines.extend([f"**{label}**：", "", value, ""])
+    else:
+        lines.extend([f"**{label}**：{value}", ""])
 
 
 def _first_nonempty(*values: str) -> str:
@@ -353,25 +388,21 @@ class ObsidianExporter:
             if tags:
                 lines.append(f"- **标签**：{' '.join(f'[[{tag}]]' for tag in tags)}")
             lines.append("")
-            if summary:
-                lines.extend([f"**一句话总结**：{summary}", ""])
+            _append_labeled_daily_field(lines, "一句话总结", summary)
             if daily_image:
                 lines.extend([daily_image, ""])
-            if why_read:
-                lines.extend([f"**看点**：{why_read}", ""])
+            _append_labeled_daily_field(lines, "看点", why_read)
             if core_points:
                 lines.append("**核心贡献/观点**：")
                 lines.append("")
                 lines.extend(f"- {point}" for point in core_points)
                 lines.append("")
             elif contribution:
-                lines.extend([f"**核心贡献**：{contribution}", ""])
-            if key_results:
-                lines.extend([f"**关键结果**：{key_results}", ""])
+                _append_labeled_daily_field(lines, "核心贡献", contribution)
+            _append_labeled_daily_field(lines, "关键结果", key_results)
             if modules and not core_points:
-                lines.extend([f"**创新模块**：{modules}", ""])
-            if inspiration:
-                lines.extend([f"**项目启发**：{inspiration}", ""])
+                _append_labeled_daily_field(lines, "创新模块", modules)
+            _append_labeled_daily_field(lines, "项目启发", inspiration)
             open_parts = []
             code_status = _meaningful_text(result.code_availability)
             dataset_status = _meaningful_text(result.dataset_availability)
