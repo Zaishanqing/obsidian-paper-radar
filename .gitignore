@@ -1,0 +1,25 @@
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+logs/
+data/state/
+data/cache/
+.venv/
+src/*.egg-info/
+
+# 个人配置（含研究兴趣、项目、私人偏好），只提交 *.example.yaml
+config/paper_profile.yaml
+config/daily_papers.yaml
+
+# 内部开发文档，不发布到公开仓库
+docs/PROJECT_STATUS.md
+docs/CODEX_AUDIT.md
+docs/ISSUES_AND_FIXES.md
+
+# 仅用于迁移参考的第三方项目与原始改造指令，运行时不依赖，不发布
+daily-paper-reader-main/
+prompt.md

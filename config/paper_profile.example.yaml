@@ -1,0 +1,57 @@
+# 示例研究画像。复制本文件为 config/paper_profile.yaml 后按自己的方向修改。
+profile_name: Example Research Profile
+
+language:
+  output: zh-CN
+  keep_original_title: true
+
+# 长期研究兴趣，作为优先级软偏好（不是硬过滤）。按自己的方向替换。
+long_term_interests:
+  - large language models
+  - retrieval augmented generation
+  - knowledge graph
+  - multimodal learning
+  - AI agent
+  - diffusion models
+  - reinforcement learning
+
+selection_policy:
+  interests_are_soft_preferences: true
+  allow_hot_papers_outside_profile: true
+  allow_inspiration_papers: true
+  keep_if_transferable_module: true
+  notes:
+    - 兴趣方向只作为优先级，不作为硬过滤条件。
+    - 论文很热、或模块可迁移到当前项目时，也允许进入日报和笔记。
+
+# 当前在做的项目，命中 prefer 的论文加分，命中 avoid 的减分。按自己的项目替换。
+current_projects:
+  - name: 示例项目
+    priority: 3
+    prefer:
+      - knowledge graph construction
+      - RAG evaluation
+    avoid:
+      - pure theoretical derivation
+      - benchmark-only papers without method novelty
+
+excluded_keywords:
+  - pure survey
+  - editorial
+  - workshop report
+
+daily_quota:
+  candidate_limit: 300
+  llm_filter_limit: 60
+  daily_digest_top_n: 10
+  detailed_note_top_n: 3
+  # 兼容旧限额；日报图片实际会至少覆盖全部推荐论文。
+  image_extract_top_n: 3
+
+scoring_weights:
+  relevance_to_profile: 0.35
+  usefulness_to_current_project: 0.25
+  technical_novelty: 0.15
+  reproducibility: 0.10
+  paper_quality: 0.10
+  freshness: 0.05

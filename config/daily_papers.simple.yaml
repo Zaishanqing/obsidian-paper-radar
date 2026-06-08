@@ -1,0 +1,86 @@
+# 精简配置 —— 只保留核心功能，适合新用户快速上手。
+# 复制为 config/daily_papers.yaml 后使用。
+# 高级配置见 config/daily_papers.example.yaml
+
+sources:
+  arxiv:
+    enabled: true
+    lookback_days: 7
+    categories:
+      - cs.AI
+      - cs.CL
+      - cs.LG
+      - cs.CV
+    max_results: 200
+
+  semantic_scholar:
+    enabled: true
+    api_key: ""
+    lookback_days: 14
+    max_results: 60
+    # 无 API Key 时 S2 免费层约 1 req/s，极易 429；临时增大到 3 减少限流（拿到 key 后可调回 1）
+    sleep_between_requests_seconds: 3
+    max_retries: 3
+    backoff_seconds: 2
+    respect_retry_after: true
+    stop_on_rate_limit: true
+    cache:
+      enabled: true
+      ttl_days: 3
+      dir: data/cache/semantic_scholar
+
+hotness:
+  enabled: false
+
+open_source_check:
+  enabled: false
+
+citation_network:
+  enabled: false
+
+fulltext_notes:
+  enabled: true
+  max_papers: 3
+  max_chars_per_section: 2400
+  grouped_generation: false  # K1：日常默认关闭分组(map-reduce)，每篇精读约 1 次 pro，更快；深度精读时可手动改回 true
+  harmonize: false           # 分组后再做一次轻量一致性整合（额外一次 fast 调用，仅统一术语/去矛盾，不删内容）
+
+feedback:
+  enabled: true
+  boost: 1.5
+  penalty: 1.5
+  max_adjust: 3.0
+
+vault_links:
+  enabled: true
+
+moc:
+  enabled: false
+
+output:
+  vault_path: ""
+  daily_dir: 每日科研论文/日报
+  paper_dir: 每日科研论文/笔记
+  weekly_dir: 每日科研论文/周报
+  overwrite_daily_note: true
+  create_individual_notes: true
+  # 图片按论文原始顺序依次筛选机制/架构/流程图，收满 max_images_per_paper 即停止；
+  # 日报和精读笔记会把图片就近嵌入对应文字段落，而不是集中放到文末。
+  extract_images: false
+  # 每篇论文在提取阶段最多保留多少张候选图。
+  max_extracted_images_per_paper: 10
+  # 每篇论文最终写入 assets 并展示的图片数量。
+  max_images_per_paper: 3
+
+runtime:
+  request_timeout_seconds: 60     # fast/flash 模型读取超时
+  request_timeout_pro: 300        # pro 推理模型读取超时（单次推理常需 2-5 分钟）
+  stream: true                    # SSE 流式读取，思考期间持续吐数据，规避读取超时
+  disable_thinking: false         # 关闭 DeepSeek 思考模式更快，但精读推理深度会下降；想提速可改 true
+  max_retries: 3
+  llm_batch_size: 5
+  context_extract_top_n: 8
+  log_level: INFO
+  disable_dedup: false
+  connectivity_check: true            # 主流程前探测网络连通性（网络不稳定时先等待重试）
+  connectivity_max_wait_seconds: 180  # 探测不通时最多等待秒数，超时仍继续执行

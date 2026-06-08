@@ -1,0 +1,230 @@
+sources:
+  arxiv:
+    enabled: true
+    lookback_days: 7
+    categories:
+      - cs.AI
+      - cs.CL
+      - cs.LG
+      - cs.IR
+      - cs.CV
+      - cs.NE
+      - cs.SI
+      - stat.ML
+    max_results: 300
+
+  semantic_scholar:
+    enabled: true
+    api_key: ""
+    lookback_days: 30
+    max_results: 100
+    # 无 API Key 时 S2 免费层约 1 req/s，极易 429；临时增大到 3 减少限流（拿到 key 后可调回 1）
+    sleep_between_requests_seconds: 3
+    # 抗限流：未拿到 api_key 时也能靠本地缓存 + 退避重试缓解 429
+    max_retries: 3
+    backoff_seconds: 2
+    respect_retry_after: true
+    stop_on_rate_limit: true
+    cache:
+      enabled: true
+      ttl_days: 3
+      dir: data/cache/semantic_scholar
+
+  # ── 顶会来源（默认关闭，需要时改为 enabled: true）──
+  # 开启后会联网抓取顶会论文，首次运行较慢（会建本地缓存）。
+  openreview:
+    enabled: false
+    cache:
+      enabled: true
+      ttl_days: 14
+      dir: data/cache/conference_sources
+    conferences:
+      - iclr
+      - icml
+      - neurips
+    year_count: 2
+    max_results: 120
+    per_venue_limit: 60
+    page_size: 1000
+    sleep_between_requests_seconds: 0.5
+    # 当某会议某年的 venueid 命名与默认 "{Prefix}/{year}/Conference" 不一致时，
+    # 用 "{conference}-{year}" 或 "{conference}" 覆盖/追加候选；留空即用默认。
+    venue_id_overrides: {}
+      # neurips-2024: "NeurIPS.cc/2024/Conference"
+
+  cvf:
+    enabled: false
+    cache:
+      enabled: true
+      ttl_days: 30
+      dir: data/cache/conference_sources
+    conferences:
+      - cvpr
+      - iccv
+      - eccv
+    year_count: 2
+    max_results: 80
+    per_venue_limit: 40
+    sleep_between_requests_seconds: 0.4
+
+  pmlr:
+    enabled: false
+    cache:
+      enabled: true
+      ttl_days: 30
+      dir: data/cache/conference_sources
+    conferences:
+      - icml
+      - aistats
+      - colt
+    year_count: 2
+    max_results: 100
+    per_venue_limit: 50
+    sleep_between_requests_seconds: 0.25
+    # 当 proceedings 索引结构变化、自动定位不到 volume 时，用 "{conference}-{year}"
+    # 直接指定 volume id（如 "v235"）或完整 URL；留空即自动定位。
+    volume_overrides: {}
+      # icml-2024: "v235"
+
+  acl_anthology:
+    enabled: false
+    cache:
+      enabled: true
+      ttl_days: 30
+      dir: data/cache/conference_sources
+    conferences:
+      - acl
+      - emnlp
+      - naacl
+    year_count: 2
+    max_results: 100
+    per_volume_limit: 40
+    sleep_between_requests_seconds: 0.25
+
+  # DBLP 顶会名录
+  # AAAI/MICCAI
+  dblp:
+    enabled: false
+    cache:
+      enabled: true
+      ttl_days: 30
+      dir: data/cache/conference_sources
+    conferences:
+      - aaai
+      - miccai
+    year_count: 2
+    roster_limit: 1000        
+    per_venue_limit: 30       
+    max_results: 60
+    sleep_between_requests_seconds: 0.5
+    enrich_abstracts: true    
+    keep_without_abstract: false 
+    enrich_cache: true
+    enrich_cache_ttl_days: 14
+    api_key: ""               # 可选，留空则用 SEMANTIC_SCHOLAR_API_KEY 环境变量
+
+hotness:
+  enabled: true
+  top_venue_bonus: 1.5
+  named_venue_bonus: 0.7
+  recent_publication_bonus: 0.8
+  software_signal_bonus: 0.8
+  recent_years: 2
+  top_venues:
+    - iclr
+    - icml
+    - neurips
+    - cvpr
+    - iccv
+    - eccv
+    - acl
+    - emnlp
+    - naacl
+    - aaai
+    - miccai
+
+open_source_check:
+  enabled: true
+  max_papers: 8            
+  max_links_per_type: 3   
+  github_api: true         
+  request_timeout_seconds: 15
+  max_retries: 2
+  backoff_seconds: 2
+  cache:
+    enabled: true
+    ttl_days: 14
+    dir: data/cache/open_source
+
+citation_network:
+  enabled: true
+  max_papers: 3            
+  max_references: 6
+  max_citations: 6
+  request_timeout_seconds: 20
+  max_retries: 2
+  backoff_seconds: 2
+  cache:
+    enabled: true
+    ttl_days: 14
+    dir: data/cache/semantic_scholar
+
+# 反馈闭环：记录你对推荐论文的反馈（useful/not_useful），下次运行据此微调粗排得分，
+# 让系统越用越懂你。用 scripts/record_feedback.py 记录。
+fulltext_notes:
+  enabled: true
+  max_papers: 3
+  max_chars_per_section: 2400
+  grouped_generation: false  # K1：日常默认关闭分组(map-reduce)，每篇精读约 1 次 pro，更快；深度精读时可手动改回 true
+  harmonize: false           # 分组后再做一次轻量一致性整合（额外一次 fast 调用，仅统一术语/去矛盾，不删内容）
+
+feedback:
+  enabled: true
+  boost: 1.5               # 命中“有用”反馈方向的加分
+  penalty: 1.5             # 命中“无用”反馈方向的减分
+  max_adjust: 3.0          # 单篇反馈调整的绝对值上限
+
+# 自动联动已有笔记：扫描 Vault 已有论文笔记，把日报/精读笔记里命中已有笔记标题的文字
+# 转成指向该笔记的 [[wikilink]]，把新论文织进已有知识图谱。
+vault_links:
+  enabled: true
+  scan_dirs:            # 留空则默认扫描 paper_dir；可加你自己的知识笔记目录
+    - 每日科研论文/笔记
+  include_aliases: true # 是否把笔记 frontmatter 的 aliases 也作为可链接标题
+  max_links_per_doc: 30 # 单篇生成内容最多插入多少个 wikilink
+  max_links_per_term: 1 # 同一个标题在一篇里最多链接几次
+
+# 主题 MOC 自动索引：按方向/标签把已写的论文笔记聚合成索引页，方便总览与导航。
+moc:
+  enabled: true
+  moc_dir: 每日科研论文/MOC
+  min_notes_per_topic: 2  # 一个方向下至少多少篇笔记才生成 MOC
+  max_topics: 40
+
+output:
+  vault_path: ""
+  daily_dir: 每日科研论文/日报
+  paper_dir: 每日科研论文/笔记
+  weekly_dir: 每日科研论文/周报
+  overwrite_daily_note: true
+  create_individual_notes: true
+  # 图片按论文原始顺序依次筛选机制/架构/流程图，收满 max_images_per_paper 即停止；
+  # 日报和精读笔记会把图片就近嵌入对应文字段落，而不是集中放到文末。
+  extract_images: true
+  # 每篇论文在提取阶段最多保留多少张候选图，减少 20-50 张全量提取造成的 IO。
+  max_extracted_images_per_paper: 10
+  # 每篇论文最终写入 assets 并展示的图片数量。
+  max_images_per_paper: 3
+
+runtime:
+  request_timeout_seconds: 60     # fast/flash 模型读取超时
+  request_timeout_pro: 300        # pro 推理模型读取超时
+  stream: true                    # SSE 流式读取
+  disable_thinking: false         # 关闭 DeepSeek 思考模式更快，但精读推理深度会下降；想提速可改 true
+  max_retries: 3
+  llm_batch_size: 5
+  context_extract_top_n: 8
+  log_level: INFO
+  disable_dedup: false
+  connectivity_check: true            # 主流程前探测网络连通性
+  connectivity_max_wait_seconds: 180  # 探测不通时最多等待秒数
