@@ -14,6 +14,8 @@ if str(SRC) not in sys.path:
 
 from obsidian_paper_radar import citation_network as cn
 from obsidian_paper_radar import feedback as fb
+from obsidian_paper_radar.config import AppConfig
+from obsidian_paper_radar.daily import RunOptions, run_daily
 from obsidian_paper_radar.health import build_run_report, format_report_line
 from obsidian_paper_radar.models import Paper, RerankResult
 from obsidian_paper_radar.moc import update_mocs
@@ -48,6 +50,30 @@ class HealthReportTest(unittest.TestCase):
         self.assertEqual(report["llm_fallback"], 1)
         self.assertEqual(report["open_source_verified_code"], 1)
         self.assertIn("候选 3", format_report_line(report))
+
+
+class ConnectivityGateTest(unittest.TestCase):
+    def test_run_daily_exits_before_fetch_when_connectivity_timeout_is_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = AppConfig(
+                profile={"daily_quota": {}},
+                daily={
+                    "feedback": {"enabled": False},
+                    "runtime": {"connectivity_check": True, "connectivity_fail_on_timeout": True, "connectivity_max_wait_seconds": 0},
+                },
+                vault_path=Path(temp_dir),
+                daily_dir="daily",
+                paper_dir="papers",
+                deepseek_api_key="",
+                deepseek_base_url="https://api.deepseek.com",
+                deepseek_model_fast="fast",
+                deepseek_model_pro="pro",
+            )
+            with patch("obsidian_paper_radar.daily._probe_connectivity", return_value=False), patch(
+                "obsidian_paper_radar.daily.fetch_candidates", side_effect=AssertionError("fetch should not start")
+            ):
+                with self.assertRaisesRegex(RuntimeError, "网络连通性探测超时"):
+                    run_daily(config, RunOptions(run_date=date(2026, 6, 7)), Path(temp_dir) / "run.log")
 
 
 class FeedbackTest(unittest.TestCase):

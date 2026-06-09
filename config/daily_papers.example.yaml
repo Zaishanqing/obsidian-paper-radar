@@ -240,4 +240,5 @@ runtime:
   log_level: INFO
   disable_dedup: false
   connectivity_check: true            # 主流程前探测网络连通性
-  connectivity_max_wait_seconds: 180  # 探测不通时最多等待秒数
+  connectivity_max_wait_seconds: 900  # 探测不通时最多等待秒数；睡眠唤醒后建议 600-900
+  connectivity_fail_on_timeout: true   # 超时仍无网络则失败退出，让任务计划程序按失败重试策略再跑

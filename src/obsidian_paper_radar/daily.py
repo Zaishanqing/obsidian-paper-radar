@@ -238,8 +238,7 @@ def _probe_connectivity(deepseek_base_url: str, max_wait_seconds: int = 180) -> 
     """主流程前的轻量网络连通性探测。
 
     代理/网络不稳定时 DeepSeek 和学术站点的 HTTPS 可能同时失败。这里在正式抓取前
-    快速探测，不通则等待 60s 重试，最多等 max_wait_seconds；超时也只记录 warning
-    后继续执行（单点失败不阻断整体）。
+    快速探测，不通则等待 60s 重试，最多等 max_wait_seconds；是否在超时后退出由调用方决定。
     """
     import time as _time
 
@@ -282,6 +281,26 @@ def run_daily(config: AppConfig, options: RunOptions, log_path: Path) -> RunSumm
     if not options.dry_run and not config.vault_path.exists():
         raise RuntimeError(f"Obsidian Vault 路径不存在: {config.vault_path}")
 
+    # ── 一天只跑一次守卫：解锁兜底 / 手动触发 / 失败重试时，避免重复运行 ──
+    if not options.dry_run:
+        stamp_dir = ROOT / "data" / "state"
+        stamp_dir.mkdir(parents=True, exist_ok=True)
+        stamp_file = stamp_dir / f"daily_done_{options.run_date.isoformat()}.stamp"
+        if stamp_file.exists():
+            logger.info("今日 (%s) 已完成运行，跳过", options.run_date.isoformat())
+            return RunSummary(
+                candidate_count=0,
+                llm_count=0,
+                recommended_count=0,
+                detailed_note_count=0,
+                image_success=0,
+                image_failed=0,
+                daily_note_path="",
+                log_path=str(log_path),
+                run_date=options.run_date,
+                report={},
+            )
+
     quota = config.profile.get("daily_quota", {})
     llm_limit = int(options.limit or quota.get("llm_filter_limit", 60))
     digest_top_n = int(quota.get("daily_digest_top_n", 10))
@@ -308,10 +327,14 @@ def run_daily(config: AppConfig, options: RunOptions, log_path: Path) -> RunSumm
         runtime_cfg = {}
     if not options.dry_run and runtime_cfg.get("connectivity_check", True):
         logger.info("阶段 0/9：探测网络连通性")
-        _probe_connectivity(
+        connectivity_ok = _probe_connectivity(
             config.deepseek_base_url,
             max_wait_seconds=int(runtime_cfg.get("connectivity_max_wait_seconds", 180)),
         )
+        if not connectivity_ok and runtime_cfg.get("connectivity_fail_on_timeout", False):
+            raise RuntimeError(
+                "网络连通性探测超时，按 runtime.connectivity_fail_on_timeout=true 退出，等待计划任务重试"
+            )
 
     logger.info("阶段 1/9：抓取候选论文")
     candidates = fetch_candidates(config.profile, config.daily, options.run_date, options.limit)
@@ -467,16 +490,24 @@ def run_daily(config: AppConfig, options: RunOptions, log_path: Path) -> RunSumm
             written_note_paths = exporter.write_paper_notes(final_papers, results, options.run_date, note_paths, image_paths)
         daily_path = exporter.write_daily(final_papers, results, options.run_date, note_paths, daily_overview, image_paths)
         daily_note_path = str(daily_path)
-        save_seen(final_papers, results, written_note_paths, options.run_date)
-        append_run_history(
-            {
-                "date": options.run_date.isoformat(),
-                "candidate_count": len(candidates),
-                "llm_count": len(llm_candidates),
-                "recommended_count": len(results),
-                "daily_note_path": daily_note_path,
-            }
-        )
+        # 日报已落盘，后续都是记账。任一失败都不应阻断流程，更不能挡住下方"今日完成标记"，
+        # 否则解锁兜底/重试会因为缺标记而重复出报告。各自 try 包裹，失败只告警。
+        try:
+            save_seen(final_papers, results, written_note_paths, options.run_date)
+        except Exception as exc:
+            logger.warning("保存去重记录失败：%s", exc)
+        try:
+            append_run_history(
+                {
+                    "date": options.run_date.isoformat(),
+                    "candidate_count": len(candidates),
+                    "llm_count": len(llm_candidates),
+                    "recommended_count": len(results),
+                    "daily_note_path": daily_note_path,
+                }
+            )
+        except Exception as exc:
+            logger.warning("追加运行历史失败：%s", exc)
         moc_cfg = config.daily.get("moc", {})
         if isinstance(moc_cfg, dict) and moc_cfg.get("enabled", True):
             try:
@@ -497,6 +528,15 @@ def run_daily(config: AppConfig, options: RunOptions, log_path: Path) -> RunSumm
             report_path.write_text(render_report(report), encoding="utf-8")
         except Exception as exc:
             logger.warning("写运行健康报告失败：%s", exc)
+        # 写入今日完成标记，防止解锁兜底 / 重试 / 手动触发重复执行
+        try:
+            stamp_dir = ROOT / "data" / "state"
+            stamp_dir.mkdir(parents=True, exist_ok=True)
+            stamp_file = stamp_dir / f"daily_done_{options.run_date.isoformat()}.stamp"
+            stamp_file.write_text(datetime.now().isoformat(), encoding="utf-8")
+            logger.info("已写入今日完成标记：%s", stamp_file)
+        except Exception as exc:
+            logger.warning("写入今日完成标记失败：%s", exc)
 
     return RunSummary(
         candidate_count=len(candidates),
