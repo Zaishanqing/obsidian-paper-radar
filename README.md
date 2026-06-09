@@ -171,7 +171,9 @@ NO_PROXY=localhost,127.0.0.1,api.deepseek.com
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_task.ps1 -Time 08:30
 ```
 
-详细说明见 [docs/WINDOWS_SCHEDULE.md](docs/WINDOWS_SCHEDULE.md)。
+可选 `-RunWhetherLoggedOnOrNot`（锁屏/未登录也跑，存密码登录，不需要管理员）等参数。主流程内置「一天只跑一次」守卫，成功后当天重复触发会自动跳过、失败才重试。
+
+完整参数、是否需要管理员、当天强制重跑等详细说明见 [docs/WINDOWS_SCHEDULE.md](docs/WINDOWS_SCHEDULE.md)。
 
 ## 清理本地状态
 

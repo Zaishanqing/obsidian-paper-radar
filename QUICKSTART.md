@@ -70,7 +70,11 @@ NO_PROXY=localhost,127.0.0.1,api.deepseek.com
 ## 5. Windows 定时任务
 
 ```powershell
+# 每天 08:30 运行
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_task.ps1 -Time 08:30
+
+# 锁屏/未登录也要跑（存密码登录，不需要管理员）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_task.ps1 -Time 08:30 -RunWhetherLoggedOnOrNot
 ```
 
 检查任务：
@@ -80,7 +84,9 @@ Start-ScheduledTask -TaskName 'obsidian-paper-radar-daily'
 Get-ScheduledTaskInfo -TaskName 'obsidian-paper-radar-daily'
 ```
 
-详见 `docs/WINDOWS_SCHEDULE.md`。
+主流程「一天只跑一次」：成功后当天再触发会自动跳过，不重复出报告；失败才会重试。想当天强制重跑，删掉 `data\state\daily_done_<日期>.stamp` 再触发。
+
+完整参数、是否需要管理员、强制重跑等详见 [docs/WINDOWS_SCHEDULE.md](docs/WINDOWS_SCHEDULE.md)。
 
 ## 6. 写作规范
 
