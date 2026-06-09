@@ -88,6 +88,19 @@ sources:
 
   acl_anthology:
     enabled: false
+    # ACL metadata backend fallback order:
+    # 1) official acl-anthology package (requires Git for Anthology.from_repo)
+    # 2) official GitHub XML
+    # 3) DBLP roster + Semantic Scholar abstract enrichment
+    # 4) legacy ACL Anthology HTML scraping
+    backend_order:
+      - package
+      - github_xml
+      - dblp_semantic_scholar
+      - html
+    github_xml_base_url: https://raw.githubusercontent.com/acl-org/acl-anthology/master/data/xml/
+    # Optional: pin the package backend clone/cache location.
+    # package_repo_path: data/cache/acl-anthology-repo
     cache:
       enabled: true
       ttl_days: 30

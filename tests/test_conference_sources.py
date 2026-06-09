@@ -209,7 +209,117 @@ class ConferenceSourcesTest(unittest.TestCase):
         self.assertEqual(papers[0].source, "pmlr:icml")
         self.assertTrue(papers[0].extra_context["has_software_link"])
 
-    def test_acl_anthology_source_fetches_volume_and_detail(self) -> None:
+    def test_acl_anthology_package_backend_fetches_volume(self) -> None:
+        class Name:
+            first = "Alice"
+            last = "Author"
+
+        class Author:
+            name = Name()
+
+        class PackagePaper:
+            id = "1"
+            title = "Package ACL Paper"
+            abstract = "This paper proposes a package backed metadata reader."
+            authors = [Author()]
+            year = 2026
+
+        class PackageVolume:
+            def papers(self) -> list[PackagePaper]:
+                return [PackagePaper()]
+
+        class PackageAnthology:
+            def get_volume(self, full_id: str) -> PackageVolume | None:
+                return PackageVolume() if full_id == "2026.acl-long" else None
+
+        with patch("obsidian_paper_radar.conference_sources._load_acl_anthology", return_value=PackageAnthology()), patch(
+            "obsidian_paper_radar.conference_sources.requests.get", side_effect=AssertionError("network should not be used")
+        ):
+            papers = fetch_acl_anthology(
+                {
+                    "enabled": True,
+                    "backend_order": ["package"],
+                    "conferences": ["acl"],
+                    "years": [2026],
+                    "max_results": 1,
+                    "per_volume_limit": 1,
+                    "cache": {"enabled": False},
+                },
+                date(2026, 6, 7),
+            )
+
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0].title, "Package ACL Paper")
+        self.assertEqual(papers[0].source, "acl:acl")
+        self.assertEqual(papers[0].extra_context["acl_backend"], "package")
+
+    def test_acl_anthology_falls_back_from_package_to_github_xml(self) -> None:
+        xml = """
+        <collection id="2026.acl">
+          <volume id="long">
+            <paper id="1">
+              <title>XML ACL Paper</title>
+              <author><first>Alice</first><last>Author</last></author>
+              <abstract>This paper proposes an XML metadata reader.</abstract>
+            </paper>
+          </volume>
+        </collection>
+        """
+        xml_response = Mock(status_code=200)
+        xml_response.text = xml
+        xml_response.raise_for_status.return_value = None
+
+        with patch("obsidian_paper_radar.conference_sources._load_acl_anthology", side_effect=RuntimeError("no git")), patch(
+            "obsidian_paper_radar.conference_sources.requests.get", return_value=xml_response
+        ):
+            papers = fetch_acl_anthology(
+                {
+                    "enabled": True,
+                    "backend_order": ["package", "github_xml"],
+                    "conferences": ["acl"],
+                    "years": [2026],
+                    "max_results": 1,
+                    "per_volume_limit": 1,
+                    "cache": {"enabled": False},
+                },
+                date(2026, 6, 7),
+            )
+
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0].paper_id, "acl:2026.acl-long.1")
+        self.assertEqual(papers[0].authors, ["Alice Author"])
+        self.assertEqual(papers[0].extra_context["acl_backend"], "github_xml")
+
+    def test_acl_anthology_falls_back_from_xml_to_dblp_and_semantic_scholar(self) -> None:
+        xml_response = Mock(status_code=500)
+        xml_response.raise_for_status.side_effect = RuntimeError("xml failed")
+
+        with patch("obsidian_paper_radar.conference_sources.requests.get", side_effect=[xml_response, _dblp_response()]), patch(
+            "obsidian_paper_radar.net_cache.requests.request", return_value=_s2_batch_response()
+        ):
+            papers = fetch_acl_anthology(
+                {
+                    "enabled": True,
+                    "backend_order": ["github_xml", "dblp_semantic_scholar"],
+                    "conferences": ["acl"],
+                    "years": [2026],
+                    "max_results": 1,
+                    "per_venue_limit": 1,
+                    "roster_limit": 10,
+                    "cache": {"enabled": False},
+                    "enrich_cache": False,
+                    "keep_without_abstract": False,
+                    "backoff_seconds": 0,
+                },
+                date(2026, 6, 7),
+            )
+
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0].source, "acl:acl")
+        self.assertEqual(papers[0].abstract, "We propose a retrieval augmented method.")
+        self.assertEqual(papers[0].extra_context["acl_backend"], "dblp_semantic_scholar")
+
+    def test_acl_anthology_html_backend_fetches_volume_and_detail(self) -> None:
         volume = '<a href="/2026.acl-long.1/">A paper</a>'
         detail = """
         <meta content="Test ACL Paper" name="citation_title">
@@ -229,6 +339,7 @@ class ConferenceSourcesTest(unittest.TestCase):
             papers = fetch_acl_anthology(
                 {
                     "enabled": True,
+                    "backend_order": ["html"],
                     "conferences": ["acl"],
                     "years": [2026],
                     "max_results": 1,
@@ -404,6 +515,7 @@ class CacheMergeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = {
                 "enabled": True,
+                "backend_order": ["html"],
                 "conferences": ["acl"],
                 "years": [2026],
                 "max_results": 1,

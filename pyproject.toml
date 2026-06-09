@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "DeepSeek API 驱动的 Obsidian 每日论文自动筛选与推送系统"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     {name = "Obsidian Paper Radar contributors"},
 ]
@@ -17,9 +17,8 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
@@ -28,6 +27,7 @@ dependencies = [
     "PyMuPDF>=1.23,<2",
     "arxiv>=2.0,<3",
     "Pillow>=10,<13",
+    "acl-anthology>=1.2,<2",
 ]
 
 [project.scripts]
@@ -49,7 +49,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]

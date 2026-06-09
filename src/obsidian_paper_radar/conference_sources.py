@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -30,6 +31,7 @@ OPENREVIEW_API2 = "https://api2.openreview.net/notes"
 CVF_BASE = "https://openaccess.thecvf.com/"
 PMLR_BASE = "https://proceedings.mlr.press/"
 ACL_BASE = "https://aclanthology.org/"
+ACL_GITHUB_XML_BASE = "https://raw.githubusercontent.com/acl-org/acl-anthology/master/data/xml/"
 DBLP_SEARCH_API = "https://dblp.org/search/publ/api"
 S2_BATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/batch"
 S2_BATCH_FIELDS = "title,abstract,citationCount,influentialCitationCount,externalIds"
@@ -83,6 +85,7 @@ ACL_VOLUME_SPECS = {
     "naacl": (("naacl-long", "Long"), ("naacl-short", "Short"), ("findings-naacl", "Findings")),
     "coling": (("coling-main", "Main"),),
 }
+ACL_DEFAULT_BACKENDS = ("package", "github_xml", "dblp_semantic_scholar", "html")
 
 
 def fetch_conference_candidates(
@@ -459,6 +462,332 @@ def _fetch_pmlr_detail(conference: str, year: int, volume_url: str, detail_url: 
 
 def fetch_acl_anthology(cfg: dict[str, Any], run_date: date, limit: int | None = None) -> list[Paper]:
     max_results = min(int(cfg.get("max_results", 100)), limit or int(cfg.get("max_results", 100)))
+    backends = _acl_backend_order(cfg)
+
+    for backend in backends:
+        try:
+            papers = _fetch_acl_anthology_backend(cfg, run_date, max_results, backend)
+        except Exception as exc:
+            logger.warning("ACL Anthology backend %s failed: %s", backend, exc)
+            continue
+        if papers:
+            logger.info("ACL Anthology backend %s returned %d papers", backend, len(papers))
+            return papers[:max_results]
+        logger.info("ACL Anthology backend %s returned no papers; trying next backend", backend)
+    return []
+
+
+def _acl_backend_order(cfg: dict[str, Any]) -> list[str]:
+    raw = cfg.get("backend_order", cfg.get("backends", list(ACL_DEFAULT_BACKENDS)))
+    items = raw if isinstance(raw, list) else [raw]
+    allowed = set(ACL_DEFAULT_BACKENDS)
+    out: list[str] = []
+    for item in items:
+        key = str(item or "").strip().lower().replace("-", "_")
+        if key == "dblp_s2":
+            key = "dblp_semantic_scholar"
+        if key in allowed and key not in out:
+            out.append(key)
+    return out or list(ACL_DEFAULT_BACKENDS)
+
+
+def _fetch_acl_anthology_backend(cfg: dict[str, Any], run_date: date, max_results: int, backend: str) -> list[Paper]:
+    if backend == "package":
+        return _fetch_acl_with_package(cfg, run_date, max_results)
+    if backend == "github_xml":
+        return _fetch_acl_with_github_xml(cfg, run_date, max_results)
+    if backend == "dblp_semantic_scholar":
+        return _fetch_acl_with_dblp_s2(cfg, run_date, max_results)
+    if backend == "html":
+        return _fetch_acl_with_html(cfg, run_date, max_results)
+    return []
+
+
+def _fetch_acl_with_package(cfg: dict[str, Any], run_date: date, max_results: int) -> list[Paper]:
+    anthology = _load_acl_anthology(cfg)
+    return _fetch_acl_structured_volumes(
+        cfg,
+        run_date,
+        max_results,
+        "package",
+        lambda conference, year, volume_key, label, per_volume_limit: _fetch_acl_package_volume(
+            anthology, conference, year, volume_key, label, per_volume_limit
+        ),
+    )
+
+
+def _load_acl_anthology(cfg: dict[str, Any]) -> Any:
+    try:
+        from acl_anthology import Anthology
+    except ImportError as exc:
+        raise RuntimeError("acl-anthology package is not installed") from exc
+
+    local_datadir = str(cfg.get("package_datadir") or "").strip()
+    if local_datadir:
+        return Anthology(datadir=local_datadir, verbose=False)
+
+    repo_path = str(cfg.get("package_repo_path") or cfg.get("repo_path") or "").strip()
+    if repo_path:
+        repo = Path(repo_path)
+        if not repo.is_absolute():
+            repo = ROOT / repo
+        return Anthology.from_repo(path=repo, verbose=False)
+    return Anthology.from_repo(verbose=False)
+
+
+def _fetch_acl_package_volume(
+    anthology: Any, conference: str, year: int, volume_key: str, label: str, per_volume_limit: int
+) -> list[Paper]:
+    collection_id, volume_id = _acl_xml_ids(conference, year, volume_key)
+    volume_full_id = f"{collection_id}-{volume_id}"
+    volume = None
+    for getter_name in ("get_volume", "get"):
+        getter = getattr(anthology, getter_name, None)
+        if callable(getter):
+            volume = getter(volume_full_id)
+            if volume is not None:
+                break
+    if volume is None:
+        return []
+
+    paper_items = _acl_volume_paper_items(volume)
+    papers: list[Paper] = []
+    for item in paper_items[:per_volume_limit]:
+        paper = _acl_package_paper_to_model(item, conference, year, volume_key, label, collection_id, volume_id)
+        if paper is not None:
+            papers.append(paper)
+    return papers
+
+
+def _acl_volume_paper_items(volume: Any) -> list[Any]:
+    papers = getattr(volume, "papers", None)
+    if callable(papers):
+        papers = papers()
+    if isinstance(papers, dict):
+        return list(papers.values())
+    if isinstance(papers, (list, tuple)):
+        return list(papers)
+    return []
+
+
+def _acl_package_paper_to_model(
+    item: Any, conference: str, year: int, volume_key: str, label: str, collection_id: str, volume_id: str
+) -> Paper | None:
+    title = _clean_text(str(getattr(item, "title", "") or ""))
+    abstract = _clean_text(str(getattr(item, "abstract", "") or ""))
+    if not title or not abstract:
+        return None
+    paper_id_raw = str(getattr(item, "full_id", "") or getattr(item, "anthology_id", "") or "").strip()
+    if not paper_id_raw:
+        item_id = str(getattr(item, "id", "") or "").strip()
+        paper_id_raw = f"{collection_id}-{volume_id}.{item_id}" if item_id else f"{collection_id}-{volume_id}.{_short_hash(title)}"
+    url = str(getattr(item, "url", "") or "").strip() or f"{ACL_BASE}{paper_id_raw}/"
+    pdf_url = str(getattr(item, "pdf_url", "") or "").strip() or f"{ACL_BASE}{paper_id_raw}.pdf"
+    published = _normalize_publication_date(str(getattr(item, "publication_date", "") or "")) or str(
+        getattr(item, "year", "") or year
+    )
+    return Paper(
+        paper_id=f"acl:{paper_id_raw}",
+        title=title,
+        authors=[name for name in (_acl_author_name(author) for author in getattr(item, "authors", []) or []) if name],
+        abstract=abstract,
+        published=published,
+        url=url,
+        pdf_url=pdf_url,
+        source=f"acl:{conference}",
+        categories=[conference.upper(), label, volume_key],
+        extra_context={
+            "venue": conference.upper(),
+            "venue_year": year,
+            "volume": volume_key,
+            "acl_backend": "package",
+        },
+    )
+
+
+def _acl_author_name(author: Any) -> str:
+    name = getattr(author, "name", author)
+    first = str(getattr(name, "first", "") or "").strip()
+    last = str(getattr(name, "last", "") or "").strip()
+    return _clean_text(f"{first} {last}".strip() or str(name or ""))
+
+
+def _fetch_acl_with_github_xml(cfg: dict[str, Any], run_date: date, max_results: int) -> list[Paper]:
+    return _fetch_acl_structured_volumes(
+        cfg,
+        run_date,
+        max_results,
+        "github_xml",
+        lambda conference, year, volume_key, label, per_volume_limit: _fetch_acl_github_xml_volume(
+            conference, year, volume_key, label, per_volume_limit, cfg
+        ),
+    )
+
+
+def _fetch_acl_structured_volumes(
+    cfg: dict[str, Any],
+    run_date: date,
+    max_results: int,
+    backend: str,
+    fetch_volume: Any,
+) -> list[Paper]:
+    per_volume_limit = min(int(cfg.get("per_volume_limit", max_results)), max_results)
+    conferences = _normalize_conferences(cfg.get("conferences", ["acl", "emnlp"]), set(ACL_VOLUME_SPECS))
+    years = _resolve_years(cfg, run_date)
+    papers: list[Paper] = []
+    cache_source = f"acl_anthology_{backend}"
+
+    for conference in conferences:
+        for year in years:
+            for volume_key, label in ACL_VOLUME_SPECS.get(conference, ()):
+                parsed = _cached_fetch(
+                    cfg,
+                    cache_source,
+                    f"{conference}-{year}-{volume_key}",
+                    per_volume_limit,
+                    lambda conference=conference, year=year, volume_key=volume_key, label=label: fetch_volume(
+                        conference, year, volume_key, label, per_volume_limit
+                    ),
+                )
+                papers.extend(parsed[:per_volume_limit])
+                if len(papers) >= max_results:
+                    return papers[:max_results]
+    return papers[:max_results]
+
+
+def _fetch_acl_github_xml_volume(
+    conference: str, year: int, volume_key: str, label: str, per_volume_limit: int, cfg: dict[str, Any] | None = None
+) -> list[Paper]:
+    collection_id, volume_id = _acl_xml_ids(conference, year, volume_key)
+    cfg = cfg or {}
+    base = str(cfg.get("github_xml_base_url") or ACL_GITHUB_XML_BASE)
+    url = f"{base.rstrip('/')}/{collection_id}.xml"
+    response = requests.get(url, headers={"User-Agent": "obsidian-paper-radar/0.2"}, timeout=DEFAULT_CONFERENCE_TIMEOUT)
+    if response.status_code == 404:
+        return []
+    response.raise_for_status()
+    return _parse_acl_xml_volume(response.text, conference, year, volume_key, label, collection_id, volume_id)[:per_volume_limit]
+
+
+def _acl_xml_ids(conference: str, year: int, volume_key: str) -> tuple[str, str]:
+    if volume_key.startswith("findings-"):
+        return f"{year}.findings", volume_key.removeprefix("findings-")
+    prefix = f"{conference}-"
+    return f"{year}.{conference}", volume_key.removeprefix(prefix)
+
+
+def _parse_acl_xml_volume(
+    text: str, conference: str, year: int, volume_key: str, label: str, collection_id: str, volume_id: str
+) -> list[Paper]:
+    root = ET.fromstring(text)
+    volume_ids = {volume_id, volume_key}
+    papers: list[Paper] = []
+    for volume in root.findall(".//volume"):
+        raw_volume_id = str(volume.attrib.get("id") or "").strip()
+        if raw_volume_id and raw_volume_id not in volume_ids:
+            continue
+        for paper_node in volume.findall("paper"):
+            paper = _acl_xml_paper_to_model(paper_node, conference, year, volume_key, label, collection_id, raw_volume_id or volume_id)
+            if paper is not None:
+                papers.append(paper)
+    return papers
+
+
+def _acl_xml_paper_to_model(
+    node: ET.Element, conference: str, year: int, volume_key: str, label: str, collection_id: str, volume_id: str
+) -> Paper | None:
+    title = _xml_child_text(node, "title")
+    abstract = _xml_child_text(node, "abstract")
+    if not title or not abstract:
+        return None
+    item_id = str(node.attrib.get("id") or _short_hash(title)).strip()
+    anthology_id = f"{collection_id}-{volume_id}.{item_id}"
+    return Paper(
+        paper_id=f"acl:{anthology_id}",
+        title=title,
+        authors=_acl_xml_authors(node),
+        abstract=abstract,
+        published=str(year),
+        url=f"{ACL_BASE}{anthology_id}/",
+        pdf_url=f"{ACL_BASE}{anthology_id}.pdf",
+        source=f"acl:{conference}",
+        categories=[conference.upper(), label, volume_key],
+        extra_context={
+            "venue": conference.upper(),
+            "venue_year": year,
+            "volume": volume_key,
+            "acl_backend": "github_xml",
+        },
+    )
+
+
+def _xml_child_text(node: ET.Element, tag: str) -> str:
+    child = node.find(tag)
+    if child is None:
+        return ""
+    return _clean_text(" ".join(child.itertext()))
+
+
+def _acl_xml_authors(node: ET.Element) -> list[str]:
+    authors: list[str] = []
+    for author in node.findall("author"):
+        first = _xml_child_text(author, "first")
+        last = _xml_child_text(author, "last")
+        name = _xml_child_text(author, "name") or f"{first} {last}".strip()
+        if name:
+            authors.append(name)
+    return authors
+
+
+def _fetch_acl_with_dblp_s2(cfg: dict[str, Any], run_date: date, max_results: int) -> list[Paper]:
+    per_venue_limit = min(int(cfg.get("per_venue_limit", cfg.get("per_volume_limit", max_results))), max_results)
+    roster_limit = int(cfg.get("roster_limit", 1000))
+    conferences = _normalize_conferences(cfg.get("conferences", ["acl", "emnlp"]), set(DBLP_VENUES) & set(ACL_VOLUME_SPECS))
+    years = _resolve_years(cfg, run_date)
+    enrich = bool(cfg.get("enrich_abstracts", True))
+    keep_without_abstract = bool(cfg.get("keep_without_abstract", False))
+    papers: list[Paper] = []
+
+    for conference in conferences:
+        for year in years:
+            parsed = _cached_fetch(
+                cfg,
+                "acl_anthology_dblp_semantic_scholar",
+                f"{conference}-{year}",
+                per_venue_limit,
+                lambda conference=conference, year=year: [
+                    _acl_from_dblp_paper(paper, conference, year)
+                    for paper in _fetch_dblp_venue(
+                        conference,
+                        year,
+                        per_venue_limit,
+                        roster_limit,
+                        [],
+                        [],
+                        enrich,
+                        keep_without_abstract,
+                        cfg,
+                    )
+                ],
+            )
+            papers.extend(parsed[:per_venue_limit])
+            if len(papers) >= max_results:
+                return papers[:max_results]
+    return papers[:max_results]
+
+
+def _acl_from_dblp_paper(paper: Paper, conference: str, year: int) -> Paper:
+    paper.source = f"acl:{conference}"
+    paper.categories = [conference.upper(), f"{conference.upper()} {year}"] + DBLP_VENUE_CATEGORIES.get(conference, [])
+    paper.extra_context["acl_backend"] = "dblp_semantic_scholar"
+    paper.extra_context["venue"] = conference.upper()
+    paper.extra_context["venue_year"] = year
+    if not paper.paper_id.startswith("acl:"):
+        paper.paper_id = f"acl:{paper.paper_id}"
+    return paper
+
+
+def _fetch_acl_with_html(cfg: dict[str, Any], run_date: date, max_results: int) -> list[Paper]:
     per_volume_limit = min(int(cfg.get("per_volume_limit", max_results)), max_results)
     conferences = _normalize_conferences(cfg.get("conferences", ["acl", "emnlp"]), set(ACL_VOLUME_SPECS))
     years = _resolve_years(cfg, run_date)
@@ -487,7 +816,7 @@ def fetch_acl_anthology(cfg: dict[str, Any], run_date: date, limit: int | None =
                     if len(papers) >= max_results:
                         return papers[:max_results]
                 except Exception as exc:
-                    logger.warning("ACL Anthology fetch failed for %s %s %s: %s", conference.upper(), year, volume_key, exc)
+                    logger.warning("ACL Anthology HTML fetch failed for %s %s %s: %s", conference.upper(), year, volume_key, exc)
     return papers[:max_results]
 
 
