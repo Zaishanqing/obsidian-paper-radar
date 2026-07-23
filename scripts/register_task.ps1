@@ -190,10 +190,16 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances 'IgnoreNew' `
     -StartWhenAvailable `
     -WakeToRun `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
     -DontStopOnIdleEnd `
     -RestartInterval (New-TimeSpan -Minutes $RetryIntervalMinutes) `
     -RestartCount $RetryCount `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+
+# 笔记本要点：默认设置会带 DisallowStartIfOnBatteries / StopIfGoingOnBatteries，
+# 导致睡眠唤醒瞬间系统短暂报"电池"时任务被静默跳过或中途掐断。
+# 这里显式允许电池供电下启动、且切到电池不中止，保证合盖/睡眠唤醒后仍能跑。
 
 # Register-ScheduledTask 在部分 Windows 环境不接受短用户名（如 "12294"），
 # 使用 WindowsIdentity.Name 可得到 "电脑名\用户名" / "域\用户名" 形式。

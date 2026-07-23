@@ -19,6 +19,13 @@ import tempfile
 import logging
 from pathlib import Path
 
+# 计划任务通过 VBS/PowerShell 捕获输出，子进程 stdout/stderr 默认随系统区域用
+# GBK(cp936) 编码，打印含中文或 \xb2 等字符的路径时会 UnicodeEncodeError 崩溃。
+# 强制 UTF-8 并对无法编码的字符降级替换，保证打印永不中断（父进程也按 UTF-8 解码）。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 logger = logging.getLogger(__name__)
 
 try:

@@ -63,7 +63,11 @@ def extract_images_for_papers(
                 continue
 
             cmd = [sys.executable, str(script), paper_input, str(out_dir), str(index_file), str(extract_limit_per_paper)]
-            result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=180)
+            # 显式 UTF-8 解码，避免在中文 Windows 上按 cp936 解码子进程输出而乱码/丢字。
+            result = subprocess.run(
+                cmd, cwd=repo_root, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=180,
+            )
             if result.returncode == 0:
                 raw_count = len(_existing_images(out_dir))
                 _select_and_rename_stable(out_dir, results.get(paper.paper_id), max_images_per_paper, client)
