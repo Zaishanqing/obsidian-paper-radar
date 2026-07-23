@@ -8,6 +8,7 @@ import os
 import re
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 import requests
+from openreview.api import OpenReviewClient
 
 from .models import Paper
 from .net_cache import JsonDiskCache, request_with_retry
@@ -131,6 +133,7 @@ def fetch_openreview(cfg: dict[str, Any], run_date: date, limit: int | None = No
     papers: list[Paper] = []
 
     page_size = int(cfg.get("page_size", 1000))
+    client = _openreview_client(cfg)
 
     for conference in conferences:
         for year in years:
@@ -144,7 +147,7 @@ def fetch_openreview(cfg: dict[str, Any], run_date: date, limit: int | None = No
                     f"{conference}-{year}",
                     per_venue_limit,
                     lambda conference=conference, year=year, venue_candidates=venue_candidates: _fetch_openreview_papers(
-                        conference, year, venue_candidates, per_venue_limit, page_size
+                        client, conference, year, venue_candidates, per_venue_limit, page_size
                     ),
                 )
                 papers.extend(parsed[:per_venue_limit])
@@ -158,12 +161,12 @@ def fetch_openreview(cfg: dict[str, Any], run_date: date, limit: int | None = No
 
 
 def _fetch_openreview_papers(
-    conference: str, year: int, venue_candidates: list[str], per_venue_limit: int, page_size: int
+    client: OpenReviewClient, conference: str, year: int, venue_candidates: list[str], per_venue_limit: int, page_size: int
 ) -> list[Paper]:
     """依次尝试候选 venueid，第一个能返回 note 的胜出，从而容忍年份/会议命名差异。"""
 
     for venue_id in venue_candidates:
-        notes = _fetch_openreview_notes(venue_id, per_venue_limit, page_size)
+        notes = _fetch_openreview_notes(client, venue_id, per_venue_limit, page_size)
         if not notes:
             continue
         papers = [
@@ -184,24 +187,37 @@ def _fetch_openreview_papers(
     return []
 
 
-def _fetch_openreview_notes(venue_id: str, max_results: int, page_size: int) -> list[dict[str, Any]]:
+def _openreview_client(cfg: dict[str, Any]) -> OpenReviewClient:
+    token = str(cfg.get("token") or os.environ.get("OPENREVIEW_TOKEN") or "").strip()
+    username = str(cfg.get("username") or os.environ.get("OPENREVIEW_USERNAME") or "").strip()
+    password = str(cfg.get("password") or os.environ.get("OPENREVIEW_PASSWORD") or "").strip()
+    if not token and not (username and password):
+        raise RuntimeError("OpenReview API v2 requires OPENREVIEW_TOKEN or OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD")
+    return OpenReviewClient(
+        baseurl=str(cfg.get("api_base_url") or "https://api2.openreview.net").rstrip("/"),
+        token=token or None,
+        username=username or None,
+        password=password or None,
+    )
+
+
+def _fetch_openreview_notes(
+    client: OpenReviewClient, venue_id: str, max_results: int, page_size: int
+) -> list[dict[str, Any]]:
     notes: list[dict[str, Any]] = []
     offset = 0
     safe_page = min(max(int(page_size or 1), 1), 1000)
-    headers = {"User-Agent": "obsidian-paper-radar/0.2"}
     while len(notes) < max_results:
-        params = {
-            "content.venueid": venue_id,
-            "limit": min(safe_page, max_results - len(notes)),
-            "offset": offset,
-        }
-        response = requests.get(OPENREVIEW_API2, params=params, headers=headers, timeout=DEFAULT_CONFERENCE_TIMEOUT)
-        response.raise_for_status()
-        batch = response.json().get("notes") or []
+        requested = min(safe_page, max_results - len(notes))
+        batch = client.get_notes(
+            content={"venueid": venue_id},
+            limit=requested,
+            offset=offset,
+        )
         if not batch:
             break
-        notes.extend(item for item in batch if isinstance(item, dict))
-        if len(batch) < params["limit"]:
+        notes.extend(note.to_json() for note in batch)
+        if len(batch) < requested:
             break
         offset += len(batch)
     return notes
@@ -526,13 +542,13 @@ def _load_acl_anthology(cfg: dict[str, Any]) -> Any:
     if local_datadir:
         return Anthology(datadir=local_datadir, verbose=False)
 
-    repo_path = str(cfg.get("package_repo_path") or cfg.get("repo_path") or "").strip()
-    if repo_path:
-        repo = Path(repo_path)
-        if not repo.is_absolute():
-            repo = ROOT / repo
-        return Anthology.from_repo(path=repo, verbose=False)
-    return Anthology.from_repo(verbose=False)
+    repo = Path(str(cfg.get("package_repo_path") or cfg.get("repo_path") or "data/cache/acl-anthology-repo"))
+    if not repo.is_absolute():
+        repo = ROOT / repo
+    datadir = repo / "data"
+    if not datadir.is_dir():
+        raise RuntimeError(f"ACL Anthology data repository is missing: {repo}")
+    return Anthology(datadir=datadir, verbose=False)
 
 
 def _fetch_acl_package_volume(
@@ -565,7 +581,7 @@ def _acl_volume_paper_items(volume: Any) -> list[Any]:
         papers = papers()
     if isinstance(papers, dict):
         return list(papers.values())
-    if isinstance(papers, (list, tuple)):
+    if isinstance(papers, Iterable) and not isinstance(papers, (str, bytes)):
         return list(papers)
     return []
 

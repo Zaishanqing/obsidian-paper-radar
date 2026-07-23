@@ -34,6 +34,9 @@ sources:
   # 开启后会联网抓取顶会论文，首次运行较慢（会建本地缓存）。
   openreview:
     enabled: false
+    # API v2 需要认证：填写凭据后再将 enabled 设为 true。
+    # 凭据从 OPENREVIEW_TOKEN，或 OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD 读取。
+    # api_base_url: https://api2.openreview.net
     cache:
       enabled: true
       ttl_days: 14
@@ -89,7 +92,7 @@ sources:
   acl_anthology:
     enabled: false
     # ACL metadata backend fallback order:
-    # 1) official acl-anthology package (requires Git for Anthology.from_repo)
+    # 1) official acl-anthology package (reads the local official repository cache)
     # 2) official GitHub XML
     # 3) DBLP roster + Semantic Scholar abstract enrichment
     # 4) legacy ACL Anthology HTML scraping
@@ -99,7 +102,7 @@ sources:
       - dblp_semantic_scholar
       - html
     github_xml_base_url: https://raw.githubusercontent.com/acl-org/acl-anthology/master/data/xml/
-    # Optional: pin the package backend clone/cache location.
+    # Optional: pin the package backend official repository cache location.
     # package_repo_path: data/cache/acl-anthology-repo
     cache:
       enabled: true

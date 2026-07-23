@@ -40,26 +40,28 @@ def _cache_paper(paper_id: str) -> Paper:
     )
 
 
+def _openreview_note(payload: dict[str, object]) -> Mock:
+    note = Mock()
+    note.to_json.return_value = payload
+    return note
+
+
 class ConferenceSourcesTest(unittest.TestCase):
     def test_openreview_source_normalizes_public_notes(self) -> None:
-        response = Mock()
-        response.json.return_value = {
-            "notes": [
-                {
-                    "id": "abc123",
-                    "forum": "abc123",
-                    "content": {
-                        "title": {"value": "Test OpenReview Paper"},
-                        "abstract": {"value": "This paper proposes a useful architecture."},
-                        "authors": {"value": ["Alice", "Bob"]},
-                        "pdf": {"value": "/pdf?id=abc123"},
-                    },
-                }
-            ]
-        }
-        response.raise_for_status.return_value = None
-
-        with patch("obsidian_paper_radar.conference_sources.requests.get", return_value=response):
+        note = _openreview_note(
+            {
+                "id": "abc123",
+                "forum": "abc123",
+                "content": {
+                    "title": {"value": "Test OpenReview Paper"},
+                    "abstract": {"value": "This paper proposes a useful architecture."},
+                    "authors": {"value": ["Alice", "Bob"]},
+                    "pdf": {"value": "/pdf?id=abc123"},
+                },
+            }
+        )
+        with patch("obsidian_paper_radar.conference_sources._openreview_client") as client_factory:
+            client_factory.return_value.get_notes.return_value = [note]
             papers = fetch_openreview(
                 {
                     "enabled": True,
@@ -76,6 +78,7 @@ class ConferenceSourcesTest(unittest.TestCase):
         self.assertEqual(papers[0].source, "openreview:iclr")
         self.assertEqual(papers[0].categories[0], "ICLR")
         self.assertEqual(papers[0].pdf_url, "https://openreview.net/pdf?id=abc123")
+        self.assertEqual(client_factory.return_value.get_notes.call_args.kwargs["content"], {"venueid": "ICLR.cc/2026/Conference"})
 
     def test_cvf_source_fetches_listing_and_detail(self) -> None:
         listing = '<dt class="ptitle"><br><a href="/content/CVPR2026/html/Test.html">Test CVF Paper</a></dt>'
@@ -143,20 +146,16 @@ class ConferenceSourcesTest(unittest.TestCase):
         self.assertNotIn("supplemental", papers[0].pdf_url)
 
     def test_openreview_source_uses_cache(self) -> None:
-        response = Mock()
-        response.json.return_value = {
-            "notes": [
-                {
-                    "id": "cached123",
-                    "forum": "cached123",
-                    "content": {
-                        "title": {"value": "Cached OpenReview Paper"},
-                        "abstract": {"value": "A cached architecture paper."},
-                    },
-                }
-            ]
-        }
-        response.raise_for_status.return_value = None
+        note = _openreview_note(
+            {
+                "id": "cached123",
+                "forum": "cached123",
+                "content": {
+                    "title": {"value": "Cached OpenReview Paper"},
+                    "abstract": {"value": "A cached architecture paper."},
+                },
+            }
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = {
@@ -167,9 +166,10 @@ class ConferenceSourcesTest(unittest.TestCase):
                 "cache": {"enabled": True, "dir": temp_dir, "ttl_days": 30},
                 "sleep_between_requests_seconds": 0,
             }
-            with patch("obsidian_paper_radar.conference_sources.requests.get", return_value=response):
+            with patch("obsidian_paper_radar.conference_sources._openreview_client") as client_factory:
+                client_factory.return_value.get_notes.return_value = [note]
                 first = fetch_openreview(cfg, date(2026, 6, 7))
-            with patch("obsidian_paper_radar.conference_sources.requests.get", side_effect=AssertionError("network should not be used")):
+            with patch("obsidian_paper_radar.conference_sources._openreview_client"):
                 second = fetch_openreview(cfg, date(2026, 6, 7))
 
         self.assertEqual(first[0].title, second[0].title)
@@ -545,20 +545,13 @@ class VenueMappingTest(unittest.TestCase):
         self.assertTrue(url.endswith("/v235/"))
 
     def test_openreview_falls_back_to_second_candidate(self) -> None:
-        empty = Mock()
-        empty.json.return_value = {"notes": []}
-        empty.raise_for_status.return_value = None
-        full = Mock()
-        full.json.return_value = {
-            "notes": [
-                {
-                    "id": "x",
-                    "forum": "x",
-                    "content": {"title": {"value": "T"}, "abstract": {"value": "A useful method."}},
-                }
-            ]
-        }
-        full.raise_for_status.return_value = None
+        full = _openreview_note(
+            {
+                "id": "x",
+                "forum": "x",
+                "content": {"title": {"value": "T"}, "abstract": {"value": "A useful method."}},
+            }
+        )
 
         cfg = {
             "enabled": True,
@@ -569,7 +562,8 @@ class VenueMappingTest(unittest.TestCase):
             "sleep_between_requests_seconds": 0,
             "venue_id_overrides": {"iclr-2026": ["First/2026/Conference", "Second/2026/Conference"]},
         }
-        with patch("obsidian_paper_radar.conference_sources.requests.get", side_effect=[empty, full]):
+        with patch("obsidian_paper_radar.conference_sources._openreview_client") as client_factory:
+            client_factory.return_value.get_notes.side_effect = [[], [full]]
             papers = fetch_openreview(cfg, date(2026, 6, 7))
         self.assertEqual(len(papers), 1)
         self.assertEqual(papers[0].title, "T")

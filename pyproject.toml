@@ -28,6 +28,7 @@ dependencies = [
     "arxiv>=2.0,<3",
     "Pillow>=10,<13",
     "acl-anthology>=1.2,<2",
+    "openreview-py>=1.50,<2",
 ]
 
 [project.scripts]
